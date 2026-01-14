@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Expense Simulator (Protected Wallet)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+
+<body class="bg-neutral-900 text-neutral-100 min-h-screen">
+
+<div class="max-w-5xl mx-auto p-6 space-y-6">
+
+  <!-- Header -->
+  <header class="flex justify-between items-center">
+    <h1 class="text-2xl font-bold">Expense Simulator</h1>
+    <span class="text-sm text-neutral-400">Protected Wallet</span>
+  </header>
+
+  <!-- Dashboard -->
+  <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="bg-neutral-800 rounded-xl p-4">
+      <p class="text-sm text-neutral-400">Savings</p>
+      <p id="total-savings" class="text-2xl font-semibold">₱0</p>
+    </div>
+    <div class="bg-neutral-800 rounded-xl p-4">
+      <p class="text-sm text-neutral-400">Total Income</p>
+      <p id="total-income" class="text-2xl font-semibold">₱0</p>
+    </div>
+    <div class="bg-neutral-800 rounded-xl p-4">
+      <p class="text-sm text-neutral-400">Total Expenses</p>
+      <p id="total-expenses" class="text-2xl font-semibold">₱0</p>
+    </div>
+  </section>
+
+  <!-- Add Entry -->
+  <section class="bg-neutral-800 rounded-xl p-4 space-y-4">
+    <h2 class="font-semibold">Add Entry</h2>
+
+    <form id="entry-form" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <select id="entry-type" class="bg-neutral-900 rounded-lg p-2">
+        <option value="income">Income</option>
+        <option value="expense">Expense</option>
+        <option value="transaction">Transaction</option>
+      </select>
+
+      <input id="entry-amount" type="number" min="1" placeholder="Amount (PHP)"
+        class="bg-neutral-900 rounded-lg p-2" required />
+
+      <button
+        class="bg-blue-600 hover:bg-blue-500 rounded-lg px-4 py-2 font-medium">
+        Submit
+      </button>
+    </form>
+  </section>
+
+  <!-- Entries -->
+  <section class="bg-neutral-800 rounded-xl p-4">
+    <h2 class="font-semibold mb-3">Entries</h2>
+    <div id="entries-list" class="space-y-2 max-h-[300px] overflow-y-auto"></div>
+  </section>
+
+</div>
+
+<!-- Toast -->
+<div id="toast"
+  class="fixed bottom-6 right-6 bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-2 text-sm hidden">
+</div>
+
+<script>
+/* =======================
+   CONFIG
+======================= */
+const API_BASE = "https://YOUR-RENDER-URL/api";
+
+/* =======================
+   STATE
+======================= */
+let allEntries = [];
+let walletBalancePHP = 0;
+
+/* =======================
+   API
+======================= */
+async function apiSummary() {
+  const res = await fetch(`${API_BASE}/entries/summary`);
+  if (!res.ok) throw new Error("Failed to load data");
+  return res.json();
+}
+
+async function apiCreate(type, amountPHP) {
+  const res = await fetch(`${API_BASE}/entries`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, amountPHP })
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || "Request failed");
+  }
+}
+
+/* =======================
+   LOAD DATA
+======================= */
+async function loadAppData() {
+  const data = await apiSummary();
+
+  walletBalancePHP = data.balancePHP;
+
+  allEntries = data.entries.map(e => ({
+    id: e._id,
+    type: e.type,
+    amount: e.amountPHP,
+    effect: e.effect,
+    createdAt: new Date(e.createdAt)
+  }));
+
+  updateUI();
+}
+
+/* =======================
+   UI
+======================= */
+function updateUI() {
+  document.getElementById("total-savings").textContent =
+    format(walletBalancePHP);
+
+  const totalIncome = allEntries
+    .filter(e => e.type === "income")
+    .reduce((s, e) => s + e.amount, 0);
+
+  const totalExpenses = allEntries
+    .filter(e => e.type === "expense")
+    .reduce((s, e) => s + e.amount, 0);
+
+  document.getElementById("total-income").textContent = format(totalIncome);
+  document.getElementById("total-expenses").textContent = format(totalExpenses);
+
+  renderEntries();
+}
+
+function renderEntries() {
+  const list = document.getElementById("entries-list");
+  list.innerHTML = "";
+
+  allEntries.forEach(e => {
+    const div = document.createElement("div");
+    div.className =
+      "flex justify-between items-center bg-neutral-900 rounded-lg px-3 py-2 text-sm";
+
+    const badge =
+      e.effect === "credit" ? "text-green-400" :
+      e.effect === "rebate" ? "text-blue-400" :
+      "text-red-400";
+
+    div.innerHTML = `
+      <span>${e.type.toUpperCase()} (${e.effect})</span>
+      <span class="${badge}">${format(e.amount)}</span>
+    `;
+    list.appendChild(div);
+  });
+}
+
+/* =======================
+   FORM
+======================= */
+document.getElementById("entry-form").addEventListener("submit", async e => {
+  e.preventDefault();
+
+  const type = document.getElementById("entry-type").value;
+  const amount = Number(document.getElementById("entry-amount").value);
+
+  try {
+    await apiCreate(type, amount);
+    showToast("Entry approved");
+    e.target.reset();
+    await loadAppData();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+});
+
+/* =======================
+   HELPERS
+======================= */
+function format(n) {
+  return "₱" + n.toLocaleString();
+}
+
+function showToast(msg, isError = false) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className =
+    `fixed bottom-6 right-6 px-4 py-2 rounded-lg text-sm ${
+      isError ? "bg-red-600" : "bg-green-600"
+    }`;
+  t.classList.remove("hidden");
+  setTimeout(() => t.classList.add("hidden"), 2500);
+}
+
+/* =======================
+   INIT
+======================= */
+loadAppData();
+</script>
+
+</body>
+</html>
